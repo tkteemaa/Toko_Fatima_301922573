@@ -1,0 +1,331 @@
+==> [0/6] Store and show times in Lagos time (WAT, UTC+1)
+ALTER DATABASE
+==> [1/6] (Re)create the schema
+BEGIN
+psql:schema.sql:12: NOTICE:  table "payment" does not exist, skipping
+psql:schema.sql:12: NOTICE:  table "enrolment" does not exist, skipping
+psql:schema.sql:12: NOTICE:  table "lesson_session" does not exist, skipping
+psql:schema.sql:12: NOTICE:  table "lesson_type" does not exist, skipping
+psql:schema.sql:12: NOTICE:  table "swimmer" does not exist, skipping
+psql:schema.sql:12: NOTICE:  table "guardian" does not exist, skipping
+psql:schema.sql:12: NOTICE:  table "instructor" does not exist, skipping
+psql:schema.sql:12: NOTICE:  table "lane" does not exist, skipping
+psql:schema.sql:12: NOTICE:  table "pool" does not exist, skipping
+DROP TABLE
+psql:schema.sql:13: NOTICE:  function enforce_group_capacity() does not exist, skipping
+DROP FUNCTION
+psql:schema.sql:14: NOTICE:  function enforce_swimmer_guardian() does not exist, skipping
+DROP FUNCTION
+psql:schema.sql:15: NOTICE:  function enforce_session_lane_pool() does not exist, skipping
+DROP FUNCTION
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE FUNCTION
+CREATE TRIGGER
+CREATE FUNCTION
+CREATE TRIGGER
+COMMIT
+==> [2/6] Load small hand-crafted seed
+BEGIN
+INSERT 0 4
+INSERT 0 9
+INSERT 0 6
+INSERT 0 6
+INSERT 0 12
+INSERT 0 5
+INSERT 0 6
+INSERT 0 8
+INSERT 0 8
+COMMIT
+==> [3/6] Generate 50k+ enrolments (this takes ~30-60s)
+Generated 29753 lesson sessions over 745 days.
+Generated 60000 enrolments and 57142 payments.
+
+Wrote 9 CSV files to /workspaces/Toko_Fatima_301922573/portfolio-1-database-design/bulk_data
+Total enrolments: 60000
+Total payments:   57142
+Total sessions:   29753
+Total swimmers:   20000
+==> [4/6] Bulk-load the CSVs
+BEGIN
+TRUNCATE TABLE
+COPY 4
+COPY 17
+COPY 30
+COPY 5000
+COPY 20000
+COPY 5
+COPY 29753
+COPY 60000
+COPY 57142
+ setval 
+--------
+      4
+(1 row)
+
+ setval 
+--------
+     17
+(1 row)
+
+ setval 
+--------
+     30
+(1 row)
+
+ setval 
+--------
+   5000
+(1 row)
+
+ setval 
+--------
+  20000
+(1 row)
+
+ setval 
+--------
+      5
+(1 row)
+
+ setval 
+--------
+  29753
+(1 row)
+
+ setval 
+--------
+  60000
+(1 row)
+
+ setval 
+--------
+  57142
+(1 row)
+
+COMMIT
+Bulk load complete. Row counts:
+       t        | count 
+----------------+-------
+ enrolment      | 60000
+ guardian       |  5000
+ instructor     |    30
+ lane           |    17
+ lesson_session | 29753
+ lesson_type    |     5
+ payment        | 57142
+ pool           |     4
+ swimmer        | 20000
+(9 rows)
+
+==> [5/6] Verify row counts
+       t        | count 
+----------------+-------
+ enrolment      | 60000
+ guardian       |  5000
+ instructor     |    30
+ lane           |    17
+ lesson_session | 29753
+ lesson_type    |     5
+ payment        | 57142
+ pool           |     4
+ swimmer        | 20000
+(9 rows)
+
+==> [6/6] Run constraint tests (each must FAIL)
+Pager usage is off.
+====================================================================
+Each [n] test below should print ERROR from the named constraint.
+An ERROR here = the constraint fired correctly.
+====================================================================
+BEGIN
+Fixtures: pool 1 , lanes 1 & 2 , instructors 1 & 30 , test day 2026-12-11
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+
+[1] Lane overlap (same lane, different instructor) — expect exclusion_violation on excl_lane_overlap
+psql:constraints_test.sql:60: ERROR:  conflicting key value violates exclusion constraint "excl_lane_overlap"
+DETAIL:  Key (lane_id, during)=(1, ["2026-12-11 10:15:00+01","2026-12-11 10:45:00+01")) conflicts with existing key (lane_id, during)=(1, ["2026-12-11 10:00:00+01","2026-12-11 10:45:00+01")).
+
+[2] Instructor overlap (same instructor, other lane) — expect exclusion_violation on excl_instructor_overlap
+psql:constraints_test.sql:66: ERROR:  conflicting key value violates exclusion constraint "excl_instructor_overlap"
+DETAIL:  Key (instructor_id, during)=(1, ["2026-12-11 10:15:00+01","2026-12-11 10:45:00+01")) conflicts with existing key (instructor_id, during)=(1, ["2026-12-11 10:00:00+01","2026-12-11 10:45:00+01")).
+
+[3] Session starting 05:30 Lagos time — expect check_violation (start before 06:00)
+psql:constraints_test.sql:72: ERROR:  new row for relation "lesson_session" violates check constraint "lesson_session_start_time_check"
+DETAIL:  Failing row contains (29758, 1, 2, 30, 1, 2026-12-11 05:30:00+01, 2026-12-11 06:00:00+01, 30, 8000.00, ["2026-12-11 05:30:00+01","2026-12-11 06:00:00+01")).
+
+[4] Session ending 20:30 Lagos time — expect check_violation (end after 20:00)
+psql:constraints_test.sql:78: ERROR:  new row for relation "lesson_session" violates check constraint "lesson_session_end_time_check"
+DETAIL:  Failing row contains (29759, 1, 2, 30, 1, 2026-12-11 19:45:00+01, 2026-12-11 20:30:00+01, 45, 5000.00, ["2026-12-11 19:45:00+01","2026-12-11 20:30:00+01")).
+
+[5] Session too short (15 min) — expect check_violation
+psql:constraints_test.sql:84: ERROR:  new row for relation "lesson_session" violates check constraint "lesson_session_check1"
+DETAIL:  Failing row contains (29760, 1, 2, 30, 1, 2026-12-11 13:00:00+01, 2026-12-11 13:15:00+01, 15, 8000.00, ["2026-12-11 13:00:00+01","2026-12-11 13:15:00+01")).
+
+[6] Session too long (90 min) — expect check_violation
+psql:constraints_test.sql:90: ERROR:  new row for relation "lesson_session" violates check constraint "lesson_session_check1"
+DETAIL:  Failing row contains (29761, 1, 2, 30, 1, 2026-12-11 13:00:00+01, 2026-12-11 14:30:00+01, 90, 15000.00, ["2026-12-11 13:00:00+01","2026-12-11 14:30:00+01")).
+
+[7] Payment amount 0 — expect check_violation on payment_amount_check
+psql:constraints_test.sql:94: ERROR:  new row for relation "payment" violates check constraint "payment_amount_check"
+DETAIL:  Failing row contains (57143, 60001, 0.00, 2026-11-11 23:23:06.162537+01, Cash, paid).
+
+[7b] Payment amount negative — expect check_violation on payment_amount_check
+psql:constraints_test.sql:98: ERROR:  new row for relation "payment" violates check constraint "payment_amount_check"
+DETAIL:  Failing row contains (57144, 60001, -500.00, 2026-11-11 23:23:06.162537+01, Cash, paid).
+
+[8] Group session over capacity — expect check_violation from trg_group_capacity
+    (first fill the base group session to capacity with Child/Teen swimmers)
+INSERT 0 6
+ enrolled_now | capacity 
+--------------+----------
+            6 |        6
+(1 row)
+
+psql:constraints_test.sql:109: ERROR:  Group session 29754 is full (capacity=6, already enrolled=6)
+CONTEXT:  PL/pgSQL function enforce_group_capacity() line 24 at RAISE
+
+[9] Second swimmer in a private session — expect check_violation from trg_group_capacity
+psql:constraints_test.sql:113: ERROR:  Private session 29755 already has a swimmer
+CONTEXT:  PL/pgSQL function enforce_group_capacity() line 35 at RAISE
+
+[10] Under-18 swimmer without a guardian — expect check_violation from trg_swimmer_guardian
+psql:constraints_test.sql:118: ERROR:  Swimmer Zainab is under 18 (dob=2016-11-11) but has no guardian_id
+CONTEXT:  PL/pgSQL function enforce_swimmer_guardian() line 9 at RAISE
+
+[10b] Date of birth in the future — expect check_violation from trg_swimmer_guardian
+psql:constraints_test.sql:123: ERROR:  Swimmer Musa has a date of birth in the future (2026-11-16)
+CONTEXT:  PL/pgSQL function enforce_swimmer_guardian() line 4 at RAISE
+
+[11] Pool in a city other than Abuja/Lagos — expect check_violation on pool_city_check
+psql:constraints_test.sql:128: ERROR:  new row for relation "pool" violates check constraint "pool_city_check"
+DETAIL:  Failing row contains (5, SplashPoint Kano, Kano, Zoo Road, Kano, 06:00:00, 20:00:00).
+
+[12] Lesson type capacity 10 — expect check_violation on lesson_type_capacity_check
+psql:constraints_test.sql:133: ERROR:  new row for relation "lesson_type" violates check constraint "lesson_type_capacity_check"
+DETAIL:  Failing row contains (6, Mega Group, Should fail, 45, t, 10).
+
+[13] Payment method Crypto — expect check_violation on payment_payment_method_check
+psql:constraints_test.sql:137: ERROR:  new row for relation "payment" violates check constraint "payment_payment_method_check"
+DETAIL:  Failing row contains (57145, 60001, 8000.00, 2026-11-11 23:23:06.162537+01, Crypto, paid).
+
+[14] Same swimmer enrolled twice in one session — expect unique_violation
+psql:constraints_test.sql:141: ERROR:  duplicate key value violates unique constraint "enrolment_session_id_swimmer_id_key"
+DETAIL:  Key (session_id, swimmer_id)=(29755, 3) already exists.
+
+[15] Lane from a different pool — expect check_violation from trg_session_lane_pool
+psql:constraints_test.sql:147: ERROR:  Lane 4 belongs to pool 2, not pool 1
+CONTEXT:  PL/pgSQL function enforce_session_lane_pool() line 11 at RAISE
+
+[16] CONTROL (should SUCCEED): mark attendance in the FULL group session.
+     The capacity trigger does not count the row being updated, so this works.
+UPDATE 6
+ROLLBACK
+
+====================================================================
+Tests [1]-[15] should each show an ERROR; [16] should show UPDATE n.
+All test rows were rolled back (the database is unchanged).
+====================================================================
+
+==> Structure evidence (constraints and triggers)
+                                                        Table "public.lesson_session"
+     Column     |           Type           | Collation | Nullable |                                 Default                                  
+----------------+--------------------------+-----------+----------+--------------------------------------------------------------------------
+ session_id     | integer                  |           | not null | nextval('lesson_session_session_id_seq'::regclass)
+ pool_id        | integer                  |           | not null | 
+ lane_id        | integer                  |           | not null | 
+ instructor_id  | integer                  |           | not null | 
+ lesson_type_id | integer                  |           | not null | 
+ start_time     | timestamp with time zone |           | not null | 
+ end_time       | timestamp with time zone |           | not null | 
+ duration_min   | integer                  |           | not null | 
+ price          | numeric(10,2)            |           | not null | 
+ during         | tstzrange                |           |          | generated always as (tstzrange(start_time, end_time, '[)'::text)) stored
+Indexes:
+    "lesson_session_pkey" PRIMARY KEY, btree (session_id)
+    "excl_instructor_overlap" EXCLUDE USING gist (instructor_id WITH =, during WITH &&)
+    "excl_lane_overlap" EXCLUDE USING gist (lane_id WITH =, during WITH &&)
+Check constraints:
+    "lesson_session_check" CHECK (end_time > start_time)
+    "lesson_session_check1" CHECK (EXTRACT(epoch FROM end_time - start_time)::integer >= 1800 AND EXTRACT(epoch FROM end_time - start_time)::integer <= 3600)
+    "lesson_session_duration_min_check" CHECK (duration_min >= 30 AND duration_min <= 60)
+    "lesson_session_end_time_check" CHECK ((end_time AT TIME ZONE 'Africa/Lagos'::text)::time without time zone <= '20:00:00'::time without time zone)
+    "lesson_session_price_check" CHECK (price > 0::numeric)
+    "lesson_session_start_time_check" CHECK ((start_time AT TIME ZONE 'Africa/Lagos'::text)::time without time zone >= '06:00:00'::time without time zone)
+Foreign-key constraints:
+    "lesson_session_instructor_id_fkey" FOREIGN KEY (instructor_id) REFERENCES instructor(instructor_id)
+    "lesson_session_lane_id_fkey" FOREIGN KEY (lane_id) REFERENCES lane(lane_id)
+    "lesson_session_lesson_type_id_fkey" FOREIGN KEY (lesson_type_id) REFERENCES lesson_type(lesson_type_id)
+    "lesson_session_pool_id_fkey" FOREIGN KEY (pool_id) REFERENCES pool(pool_id)
+Referenced by:
+    TABLE "enrolment" CONSTRAINT "enrolment_session_id_fkey" FOREIGN KEY (session_id) REFERENCES lesson_session(session_id) ON DELETE CASCADE
+Triggers:
+    trg_session_lane_pool BEFORE INSERT OR UPDATE ON lesson_session FOR EACH ROW EXECUTE FUNCTION enforce_session_lane_pool()
+
+                                   Table "public.swimmer"
+   Column    |  Type   | Collation | Nullable |                   Default                   
+-------------+---------+-----------+----------+---------------------------------------------
+ swimmer_id  | integer |           | not null | nextval('swimmer_swimmer_id_seq'::regclass)
+ first_name  | text    |           | not null | 
+ last_name   | text    |           | not null | 
+ dob         | date    |           | not null | 
+ age_class   | text    |           | not null | 
+ phone       | text    |           |          | 
+ email       | text    |           |          | 
+ guardian_id | integer |           |          | 
+Indexes:
+    "swimmer_pkey" PRIMARY KEY, btree (swimmer_id)
+Check constraints:
+    "swimmer_age_class_check" CHECK (age_class = ANY (ARRAY['Child'::text, 'Teen'::text, 'Adult'::text, 'Senior'::text]))
+Foreign-key constraints:
+    "swimmer_guardian_id_fkey" FOREIGN KEY (guardian_id) REFERENCES guardian(guardian_id)
+Referenced by:
+    TABLE "enrolment" CONSTRAINT "enrolment_swimmer_id_fkey" FOREIGN KEY (swimmer_id) REFERENCES swimmer(swimmer_id)
+Triggers:
+    trg_swimmer_guardian BEFORE INSERT OR UPDATE ON swimmer FOR EACH ROW EXECUTE FUNCTION enforce_swimmer_guardian()
+
+                                             Table "public.enrolment"
+    Column    |           Type           | Collation | Nullable |                     Default                     
+--------------+--------------------------+-----------+----------+-------------------------------------------------
+ enrolment_id | integer                  |           | not null | nextval('enrolment_enrolment_id_seq'::regclass)
+ session_id   | integer                  |           | not null | 
+ swimmer_id   | integer                  |           | not null | 
+ enrol_date   | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ status       | text                     |           | not null | 'confirmed'::text
+ attended     | boolean                  |           |          | 
+Indexes:
+    "enrolment_pkey" PRIMARY KEY, btree (enrolment_id)
+    "enrolment_session_id_swimmer_id_key" UNIQUE CONSTRAINT, btree (session_id, swimmer_id)
+Check constraints:
+    "enrolment_status_check" CHECK (status = ANY (ARRAY['confirmed'::text, 'cancelled'::text, 'attended'::text, 'no_show'::text]))
+Foreign-key constraints:
+    "enrolment_session_id_fkey" FOREIGN KEY (session_id) REFERENCES lesson_session(session_id) ON DELETE CASCADE
+    "enrolment_swimmer_id_fkey" FOREIGN KEY (swimmer_id) REFERENCES swimmer(swimmer_id)
+Referenced by:
+    TABLE "payment" CONSTRAINT "payment_enrolment_id_fkey" FOREIGN KEY (enrolment_id) REFERENCES enrolment(enrolment_id) ON DELETE CASCADE
+Triggers:
+    trg_group_capacity BEFORE INSERT OR UPDATE ON enrolment FOR EACH ROW EXECUTE FUNCTION enforce_group_capacity()
+
+
+P1 DONE. Screenshot:
+  - The row-count table above (must show 50,000+ enrolments)
+  - The constraints_test.sql output (every test should print an ERROR)
+  - psql -h /var/run/postgresql -d splashpoint -c '\d lesson_session'
+    (shows both exclusion constraints and the CHECK constraints)
+  - psql -h /var/run/postgresql -d splashpoint -c '\d+ swimmer'
+    (shows Triggers: trg_swimmer_guardian)
+  - psql -h /var/run/postgresql -d splashpoint -c '\d+ enrolment'
+    (shows Triggers: trg_group_capacity)

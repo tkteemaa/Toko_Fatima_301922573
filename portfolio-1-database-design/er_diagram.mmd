@@ -1,0 +1,89 @@
+%%{init: {'entityBorderColor': '#1f4e79', 'entityFillColor': '#eef4fb', 'relationshipLineColor': '#1f4e79'}}%%
+erDiagram
+    POOL ||--o{ LANE : "has"
+    POOL ||--o{ LESSON_SESSION : "hosts"
+    LANE ||--o{ LESSON_SESSION : "is used by"
+    INSTRUCTOR ||--o{ LESSON_SESSION : "teaches"
+    LESSON_TYPE ||--o{ LESSON_SESSION : "categorises"
+    GUARDIAN ||--o{ SWIMMER : "is responsible for"
+    SWIMMER ||--o{ ENROLMENT : "books"
+    LESSON_SESSION ||--o{ ENROLMENT : "fills"
+    ENROLMENT ||--|| PAYMENT : "settles"
+
+    POOL {
+        int pool_id PK
+        string name
+        string city
+        string address
+        time opening_time
+        time closing_time
+    }
+    LANE {
+        int lane_id PK
+        int pool_id FK
+        int lane_number
+        int max_capacity
+    }
+    INSTRUCTOR {
+        int instructor_id PK
+        string first_name
+        string last_name
+        string phone
+        string email
+        date hire_date
+        string certification_level
+    }
+    GUARDIAN {
+        int guardian_id PK
+        string first_name
+        string last_name
+        string phone
+        string email
+        string relationship
+    }
+    SWIMMER {
+        int swimmer_id PK
+        string first_name
+        string last_name
+        date dob
+        string age_class
+        string phone
+        string email
+        int guardian_id FK
+    }
+    LESSON_TYPE {
+        int lesson_type_id PK
+        string name
+        string description
+        int default_duration_min
+        bool is_group
+        int capacity
+    }
+    LESSON_SESSION {
+        int session_id PK
+        int pool_id FK
+        int lane_id FK
+        int instructor_id FK
+        int lesson_type_id FK
+        tstzrange during
+        timestamp start_time
+        timestamp end_time
+        int duration_min
+        numeric price
+    }
+    ENROLMENT {
+        int enrolment_id PK
+        int session_id FK
+        int swimmer_id FK
+        timestamp enrol_date
+        string status
+        bool attended
+    }
+    PAYMENT {
+        int payment_id PK
+        int enrolment_id FK
+        numeric amount
+        timestamp payment_date
+        string payment_method
+        string status
+    }
