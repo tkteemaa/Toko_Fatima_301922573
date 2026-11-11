@@ -1,0 +1,46 @@
+===== 1. Who is who =====
+-- PRIMARY:
+ port | in_recovery |  wal_lsn  
+------+-------------+-----------
+ 5432 | f           | 0/8000000
+(1 row)
+
+-- REPLICA:
+ port | in_recovery | replayed_lsn 
+------+-------------+--------------
+ 5433 | t           | 0/8000000
+(1 row)
+
+===== 2. A write on the REPLICA is rejected =====
+ERROR:  cannot execute INSERT in a read-only transaction
+===== 3. Reads work on the replica and match the primary =====
+-- PRIMARY:
+sessions=29753  enrolments=60002  instructors=30
+-- REPLICA:
+sessions=29753  enrolments=60002  instructors=30
+===== 4. Hire a new instructor on the PRIMARY, then look for her on the REPLICA =====
+ instructor_id | first_name | last_name |             email             
+---------------+------------+-----------+-------------------------------
+            31 | Halima     | Danjuma   | halima.danjuma@splashpoint.ng
+(1 row)
+
+INSERT 0 1
+-- REPLICA after ~0 ms of waiting:
+ instructor_id | first_name | last_name |             email             
+---------------+------------+-----------+-------------------------------
+            31 | Halima     | Danjuma   | halima.danjuma@splashpoint.ng
+(1 row)
+
+===== 5. Replication lag seen from the REPLICA =====
+ received  | replayed  | time_since_last_replayed_tx 
+-----------+-----------+-----------------------------
+ 0/80061D0 | 0/80061D0 | 00:00:00.111332
+(1 row)
+
+===== 6. pg_stat_replication on the PRIMARY =====
+ application_name | client_addr |   state   | sync_state | sent_lsn  | replay_lsn |    write_lag    |    flush_lag    |   replay_lag    
+------------------+-------------+-----------+------------+-----------+------------+-----------------+-----------------+-----------------
+ walreceiver      | 127.0.0.1   | streaming | async      | 0/80061D0 | 0/80061D0  | 00:00:00.003427 | 00:00:00.004061 | 00:00:00.004401
+(1 row)
+
+Replica demo finished.
