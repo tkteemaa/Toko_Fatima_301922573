@@ -1,0 +1,461 @@
+==> [1/5] Install enrol_swimmer() function
+DROP FUNCTION
+CREATE FUNCTION
+Function enrol_swimmer(integer, integer, text) created.
+Usage:  SELECT enrol_swimmer(<session_id>, <swimmer_id>, 'Card');
+The function runs inside a transaction; COMMIT or ROLLBACK afterwards.
+
+==> [2/5] COMMIT / ROLLBACK demo (expected ERROR in Path B1 = the rollback being shown)
+Pager usage is off.
+====================================================================
+Setup: a future adult group session with free places + 2 adult swimmers
+====================================================================
+Session 29225 ( Group Adult , capacity 4 , starts 2026-11-12 06:03 ) — swimmers 4 and 7
+
+====================================================================
+PATH A — SUCCESS: enrol + valid payment, then COMMIT
+====================================================================
+ enrolments_before | payments_before 
+-------------------+-----------------
+                 1 |               1
+(1 row)
+
+BEGIN
+ new_enrolment_id 
+------------------
+            60014
+(1 row)
+
+COMMIT
+ enrolments_after | payments_after 
+------------------+----------------
+                2 |              2
+(1 row)
+
+  ^ both +1: the enrolment AND its payment were committed together.
+
+====================================================================
+PATH B1 — FAILURE INSIDE THE FUNCTION: invalid payment method
+  The enrolment row is inserted first; then the payment INSERT breaks the
+  payment_method CHECK. The whole call fails, so the enrolment disappears too.
+====================================================================
+BEGIN
+psql:commit_rollback_demo.sql:53: ERROR:  Payment failed for enrolment 60015: new row for relation "payment" violates check constraint "payment_payment_method_check"
+CONTEXT:  PL/pgSQL function enrol_swimmer(integer,integer,text) line 64 at RAISE
+ROLLBACK
+ sw2_enrolments | sw2_payments 
+----------------+--------------
+              0 |            0
+(1 row)
+
+  ^ both 0: no half-finished booking was left behind (atomicity).
+
+====================================================================
+PATH B2 — EXPLICIT ROLLBACK: enrol succeeds, then the card is declined
+====================================================================
+BEGIN
+ new_enrolment_id 
+------------------
+            60016
+(1 row)
+
+Inside the open transaction swimmer 7 is enrolled:
+ sw2_enrolments_inside_tx 
+--------------------------
+                        1
+(1 row)
+
+Payment gateway says DECLINED -> the application issues ROLLBACK
+ROLLBACK
+ sw2_enrolments_after_rollback | sw2_payments_after_rollback 
+-------------------------------+-----------------------------
+                             0 |                           0
+(1 row)
+
+
+CONCLUSION: Path A persisted both rows; Paths B1 and B2 left nothing behind.
+
+==> [3/5] Isolation levels demo (READ COMMITTED vs REPEATABLE READ vs SERIALIZABLE)
+Pager usage is off.
+====================================================================
+PHENOMENON 1: NON-REPEATABLE READ
+  Under READ COMMITTED, the same SELECT inside one transaction can
+  return different rows if another transaction commits a change in
+  between. Under REPEATABLE READ, the SELECT returns the same snapshot.
+====================================================================
+
+Target swimmer BEFORE:
+ swimmer_id | first_name 
+------------+------------
+          3 | Emeka
+(1 row)
+
+
+--- Under READ COMMITTED (default) ---
+T1 starts a transaction and reads the swimmer. THEN a second psql
+session updates the swimmer and commits. T1 reads again — under
+READ COMMITTED the new value IS visible (NON-REPEATABLE READ).
+BEGIN
+T1 first read:
+ first_name 
+------------
+ Emeka
+(1 row)
+
+  [second session runs UPDATE + COMMIT in background]
+UPDATE 1
+T1 second read (same transaction):
+   first_name    
+-----------------
+ TEMP_RC_RENAMED
+(1 row)
+
+  ^^^ Should show TEMP_RC_RENAMED — NON-REPEATABLE READ happened.
+ROLLBACK
+UPDATE 1
+
+--- Under REPEATABLE READ ---
+T1 starts a REPEATABLE READ transaction; both reads see the SAME snapshot.
+BEGIN
+T1 first read:
+ first_name 
+------------
+ Emeka
+(1 row)
+
+UPDATE 1
+T1 second read (same REPEATABLE READ transaction):
+ first_name 
+------------
+ Emeka
+(1 row)
+
+  ^^^ Should show the ORIGINAL name — snapshot is frozen, no non-repeatable read.
+ROLLBACK
+UPDATE 1
+
+====================================================================
+PHENOMENON 2: PHANTOM READ
+  Under READ COMMITTED, a COUNT(*) can change between two reads in
+  the same transaction if another transaction inserts/deletes matching
+  rows. PostgreSQL REPEATABLE READ prevents phantom reads.
+====================================================================
+
+--- Under READ COMMITTED ---
+BEGIN
+T1 first count of Adult swimmers:
+ adults_before 
+---------------
+          5865
+(1 row)
+
+INSERT 0 1
+T1 second count (same transaction):
+ adults_after 
+--------------
+         5866
+(1 row)
+
+  ^^^ adults_after should be adults_before + 1 — PHANTOM READ happened.
+ROLLBACK
+DELETE 1
+
+--- Under REPEATABLE READ ---
+BEGIN
+T1 first count of Adult swimmers:
+ adults_before 
+---------------
+          5865
+(1 row)
+
+INSERT 0 1
+T1 second count (same REPEATABLE READ transaction):
+ adults_after 
+--------------
+         5865
+(1 row)
+
+  ^^^ adults_after should EQUAL adults_before — PHANTOM READ prevented.
+ROLLBACK
+DELETE 1
+
+====================================================================
+PHENOMENON 3: WRITE SKEW (only prevented by SERIALIZABLE)
+  Under REPEATABLE READ, write skew is POSSIBLE.
+  Under SERIALIZABLE, PostgreSQL SSI detects the conflict and aborts.
+  run_race_demos.py Part 4 shows SSI aborting a booking, then the retry.
+====================================================================
+
+Quick demonstration of SERIALIZABLE aborting on conflict:
+T1 starts a SERIALIZABLE transaction and reads swimmer count.
+T2 starts SERIALIZABLE, reads same count, INSERTs, COMMITs.
+T1 then INSERTs and COMMITs — should get could not serialize access.
+BEGIN
+ t1_count 
+----------
+     5865
+(1 row)
+
+BEGIN
+ count 
+-------
+  5865
+(1 row)
+
+INSERT 0 1
+COMMIT
+T1 now INSERTs and COMMITs (should fail with serialization conflict):
+psql:isolation_levels.sql:139: ERROR:  could not serialize access due to read/write dependencies among transactions
+DETAIL:  Reason code: Canceled on identification as a pivot, during write.
+HINT:  The transaction might succeed if retried.
+ROLLBACK
+  ^^^ T1 should fail with: ERROR: could not serialize access due to read/write dependencies among transactions
+      (the INSERT or the COMMIT reports it; a failed COMMIT ends the transaction as a ROLLBACK)
+DELETE 1
+
+====================================================================
+ISOLATION LEVELS SUMMARY
+====================================================================
+READ COMMITTED  (PG default): no dirty reads; non-repeatable reads POSSIBLE; phantoms POSSIBLE; write skew POSSIBLE.
+REPEATABLE READ (PG):          no dirty reads; no non-repeatable reads; NO phantoms (PG-specific); write skew STILL POSSIBLE.
+SERIALIZABLE  (PG SSI):        no dirty reads; no non-repeatable reads; no phantoms; no write skew. Conflicts abort with retry hint.
+
+==> [4/5] Deadlock demo (two psql sessions, AB-BA)
+Pager usage is off.
+===== DEADLOCK DEMO =====
+Lock targets: swimmer 3 and swimmer 4
+Launching T_A and T_B at the same time (each in its own psql session)...
+----- T_A output -----
+T_A: lock s1
+BEGIN
+UPDATE 1
+ pg_sleep 
+----------
+ 
+(1 row)
+
+T_A: now lock s2
+psql:/tmp/splash_ta.sql:6: ERROR:  deadlock detected
+DETAIL:  Process 28976 waits for ShareLock on transaction 869; blocked by process 28975.
+Process 28975 waits for ShareLock on transaction 868; blocked by process 28976.
+HINT:  See server log for query details.
+CONTEXT:  while locking tuple (191,9) in relation "swimmer"
+ROLLBACK
+----- T_B output -----
+T_B: lock s2
+BEGIN
+UPDATE 1
+ pg_sleep 
+----------
+ 
+(1 row)
+
+T_B: now lock s1
+UPDATE 1
+COMMIT
+
+One session shows ERROR: deadlock detected (it was rolled back); the other COMMITs.
+Fix: always lock rows in the SAME order (e.g. ascending swimmer_id) — see run_race_demos.py Part 6.
+
+==> [5/5] Race-condition demos, 6 parts, two real sessions -> race_demos_output.log
+
+==============================================================================
+SETUP — a demo Group Children session (capacity 6) 21 days ahead
+==============================================================================
+Demo session_id = 29763 (pool 1, lane 1, 2026-12-02 18:00-18:45 Lagos), capacity = 6
+Swimmers used: 1=Musiliu Akpan, 2=Tunde Bashir, 6=Rukayat Ibrahim, 9=Wale Okafor, 14=Bukola Garba, 16=Jide Eze, 17=Amina Toko, 18=Femi Adebayo
+
+==============================================================================
+PART 1 — THE BUG: two parents book the LAST place at the same time (READ COMMITTED)
+==============================================================================
+[reset] session 29763 now has 5/6 confirmed swimmers
+[A] BEGIN
+[A]   -> BEGIN
+[A] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[A]   -> (5,)
+[B] BEGIN
+[B]   -> BEGIN
+[B] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[B]   -> (5,)
+Both sessions see 5 of 6 -> both think one place is free.
+[A] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 17, 'confirmed')
+[A]   -> INSERT 0 1
+[B] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 18, 'confirmed')
+[B]   -> INSERT 0 1
+(trg_group_capacity also counted only COMMITTED rows, so it let both through)
+[A] COMMIT
+[A]   -> COMMIT
+[B] COMMIT
+[B]   -> COMMIT
+[check] enrolled in session 29763: 7/6
+RESULT: OVERBOOKED — 7 swimmers in a 6-place lesson.
+
+==============================================================================
+PART 2 — UNIQUE (session_id, swimmer_id): the same child booked twice at once
+==============================================================================
+[reset] session 29763 now has 2/6 confirmed swimmers
+[A] BEGIN
+[A]   -> BEGIN
+[A] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 17, 'confirmed')
+[A]   -> INSERT 0 1
+[B] BEGIN
+[B]   -> BEGIN
+[B] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 17, 'confirmed')
+[B]   ... BLOCKED (pg_stat_activity.wait_event_type = Lock)
+[A] COMMIT
+[A]   -> COMMIT
+[B]   -> ERROR:  duplicate key value violates unique constraint "enrolment_session_id_swimmer_id_key"   (SQLSTATE 23505)
+[B] ROLLBACK
+[B]   -> ROLLBACK
+[check] enrolled in session 29763: 3/6
+RESULT: B waited for A, then the UNIQUE constraint rejected the duplicate booking.
+
+==============================================================================
+PART 3 — FIX 1: enrol_swimmer() takes SELECT ... FOR UPDATE on the session row
+==============================================================================
+[reset] session 29763 now has 5/6 confirmed swimmers
+[A] BEGIN
+[A]   -> BEGIN
+[A] SELECT enrol_swimmer(29763, 17, 'Card')
+[A]   -> (60033,)
+[B] BEGIN
+[B]   -> BEGIN
+[B] SELECT enrol_swimmer(29763, 18, 'Card')
+[B]   ... BLOCKED (pg_stat_activity.wait_event_type = Lock)
+[A] COMMIT
+[A]   -> COMMIT
+[B]   -> ERROR:  Session 29763 is full (capacity=6, already enrolled=6)   (SQLSTATE 23514)
+[B] ROLLBACK
+[B]   -> ROLLBACK
+[check] enrolled in session 29763: 6/6
+RESULT: B waited on A's row lock, re-counted after A committed and was refused — 6/6, no overbooking.
+
+==============================================================================
+PART 4 — FIX 2: SERIALIZABLE isolation (no explicit lock), with one retry
+==============================================================================
+[reset] session 29763 now has 5/6 confirmed swimmers
+[A] BEGIN ISOLATION LEVEL SERIALIZABLE
+[A]   -> BEGIN
+[A] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[A]   -> (5,)
+[B] BEGIN ISOLATION LEVEL SERIALIZABLE
+[B]   -> BEGIN
+[B] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[B]   -> (5,)
+[A] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 17, 'confirmed')
+[A]   -> INSERT 0 1
+[B] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 18, 'confirmed')
+[B]   -> INSERT 0 1
+[A] COMMIT
+[A]   -> COMMIT
+[B] COMMIT
+[B]   -> ERROR:  could not serialize access due to read/write dependencies among transactions   (SQLSTATE 40001)
+B was ABORTED with serialization_failure (40001); the app retries B once:
+[B] BEGIN ISOLATION LEVEL SERIALIZABLE
+[B]   -> BEGIN
+[B] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[B]   -> (6,)
+[B] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 18, 'confirmed')
+[B]   -> ERROR:  Group session 29763 is full (capacity=6, already enrolled=6)   (SQLSTATE 23514)
+[B] ROLLBACK
+[B]   -> ROLLBACK
+[check] enrolled in session 29763: 6/6
+RESULT: 6/6 — the retry saw the lesson was full (trigger refused it), no overbooking.
+
+==============================================================================
+PART 5 — READ COMMITTED vs REPEATABLE READ (price change + new booking during A's transaction)
+==============================================================================
+[reset] session 29763 now has 3/6 confirmed swimmers
+
+--- A runs at READ COMMITTED ---
+[reset] session 29763 now has 3/6 confirmed swimmers
+[A] BEGIN ISOLATION LEVEL READ COMMITTED
+[A]   -> BEGIN
+[A] SELECT price FROM lesson_session WHERE session_id = 29763
+[A]   -> (Decimal('5000.00'),)
+[A] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[A]   -> (3,)
+[B] UPDATE lesson_session SET price = 5500 WHERE session_id = 29763
+[B]   -> UPDATE 1
+[B] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 17, 'confirmed')
+[B]   -> INSERT 0 1
+(B auto-committed both changes)
+[A] SELECT price FROM lesson_session WHERE session_id = 29763
+[A]   -> (Decimal('5500.00'),)
+[A] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[A]   -> (4,)
+[A] COMMIT
+[A]   -> COMMIT
+A's second read: price 5500.00, enrolled 4 -> changed inside one transaction (non-repeatable read + phantom)
+
+--- A runs at REPEATABLE READ ---
+[reset] session 29763 now has 3/6 confirmed swimmers
+[A] BEGIN ISOLATION LEVEL REPEATABLE READ
+[A]   -> BEGIN
+[A] SELECT price FROM lesson_session WHERE session_id = 29763
+[A]   -> (Decimal('5000.00'),)
+[A] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[A]   -> (3,)
+[B] UPDATE lesson_session SET price = 5500 WHERE session_id = 29763
+[B]   -> UPDATE 1
+[B] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 17, 'confirmed')
+[B]   -> INSERT 0 1
+(B auto-committed both changes)
+[A] SELECT price FROM lesson_session WHERE session_id = 29763
+[A]   -> (Decimal('5000.00'),)
+[A] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[A]   -> (3,)
+[A] COMMIT
+[A]   -> COMMIT
+A's second read: price 5000.00, enrolled 3 -> same snapshot as the first read (no non-repeatable read, no phantom)
+
+==============================================================================
+PART 6 — DEADLOCK: A and B update two swimmers in OPPOSITE order
+==============================================================================
+[A] BEGIN
+[A]   -> BEGIN
+[B] BEGIN
+[B]   -> BEGIN
+[A] UPDATE swimmer SET phone = phone WHERE swimmer_id = 19
+[A]   -> UPDATE 1
+[B] UPDATE swimmer SET phone = phone WHERE swimmer_id = 24
+[B]   -> UPDATE 1
+[A] UPDATE swimmer SET phone = phone WHERE swimmer_id = 24
+[A]   ... BLOCKED (pg_stat_activity.wait_event_type = Lock)
+[B] UPDATE swimmer SET phone = phone WHERE swimmer_id = 19
+[B]   ... BLOCKED (pg_stat_activity.wait_event_type = Lock)
+[A]   -> ERROR:  deadlock detected   (SQLSTATE 40P01)
+[B]   -> UPDATE 1
+[A] ROLLBACK
+[A]   -> ROLLBACK
+[B] COMMIT
+[B]   -> COMMIT
+RESULT: PostgreSQL found the cycle (deadlock_timeout = 1s) and aborted one transaction (40P01).
+
+--- The fix: both sessions lock in the SAME order (lowest swimmer_id first) ---
+[A] BEGIN
+[A]   -> BEGIN
+[B] BEGIN
+[B]   -> BEGIN
+[A] UPDATE swimmer SET phone = phone WHERE swimmer_id = 19
+[A]   -> UPDATE 1
+[B] UPDATE swimmer SET phone = phone WHERE swimmer_id = 19
+[B]   ... BLOCKED (pg_stat_activity.wait_event_type = Lock)
+[A] UPDATE swimmer SET phone = phone WHERE swimmer_id = 24
+[A]   -> UPDATE 1
+[A] COMMIT
+[A]   -> COMMIT
+[B]   -> UPDATE 1
+[B] UPDATE swimmer SET phone = phone WHERE swimmer_id = 24
+[B]   -> UPDATE 1
+[B] COMMIT
+[B]   -> COMMIT
+RESULT: B simply waited for A, then finished. Same lock order = no deadlock.
+
+==============================================================================
+CLEANUP
+==============================================================================
+Demo session 29763 and its enrolments/payments removed.
+All six parts finished.
+
+P3 DONE. Evidence: this output (p3_output.log) and race_demos_output.log

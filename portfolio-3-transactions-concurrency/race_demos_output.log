@@ -1,0 +1,199 @@
+
+==============================================================================
+SETUP — a demo Group Children session (capacity 6) 21 days ahead
+==============================================================================
+Demo session_id = 29763 (pool 1, lane 1, 2026-12-02 18:00-18:45 Lagos), capacity = 6
+Swimmers used: 1=Musiliu Akpan, 2=Tunde Bashir, 6=Rukayat Ibrahim, 9=Wale Okafor, 14=Bukola Garba, 16=Jide Eze, 17=Amina Toko, 18=Femi Adebayo
+
+==============================================================================
+PART 1 — THE BUG: two parents book the LAST place at the same time (READ COMMITTED)
+==============================================================================
+[reset] session 29763 now has 5/6 confirmed swimmers
+[A] BEGIN
+[A]   -> BEGIN
+[A] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[A]   -> (5,)
+[B] BEGIN
+[B]   -> BEGIN
+[B] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[B]   -> (5,)
+Both sessions see 5 of 6 -> both think one place is free.
+[A] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 17, 'confirmed')
+[A]   -> INSERT 0 1
+[B] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 18, 'confirmed')
+[B]   -> INSERT 0 1
+(trg_group_capacity also counted only COMMITTED rows, so it let both through)
+[A] COMMIT
+[A]   -> COMMIT
+[B] COMMIT
+[B]   -> COMMIT
+[check] enrolled in session 29763: 7/6
+RESULT: OVERBOOKED — 7 swimmers in a 6-place lesson.
+
+==============================================================================
+PART 2 — UNIQUE (session_id, swimmer_id): the same child booked twice at once
+==============================================================================
+[reset] session 29763 now has 2/6 confirmed swimmers
+[A] BEGIN
+[A]   -> BEGIN
+[A] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 17, 'confirmed')
+[A]   -> INSERT 0 1
+[B] BEGIN
+[B]   -> BEGIN
+[B] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 17, 'confirmed')
+[B]   ... BLOCKED (pg_stat_activity.wait_event_type = Lock)
+[A] COMMIT
+[A]   -> COMMIT
+[B]   -> ERROR:  duplicate key value violates unique constraint "enrolment_session_id_swimmer_id_key"   (SQLSTATE 23505)
+[B] ROLLBACK
+[B]   -> ROLLBACK
+[check] enrolled in session 29763: 3/6
+RESULT: B waited for A, then the UNIQUE constraint rejected the duplicate booking.
+
+==============================================================================
+PART 3 — FIX 1: enrol_swimmer() takes SELECT ... FOR UPDATE on the session row
+==============================================================================
+[reset] session 29763 now has 5/6 confirmed swimmers
+[A] BEGIN
+[A]   -> BEGIN
+[A] SELECT enrol_swimmer(29763, 17, 'Card')
+[A]   -> (60033,)
+[B] BEGIN
+[B]   -> BEGIN
+[B] SELECT enrol_swimmer(29763, 18, 'Card')
+[B]   ... BLOCKED (pg_stat_activity.wait_event_type = Lock)
+[A] COMMIT
+[A]   -> COMMIT
+[B]   -> ERROR:  Session 29763 is full (capacity=6, already enrolled=6)   (SQLSTATE 23514)
+[B] ROLLBACK
+[B]   -> ROLLBACK
+[check] enrolled in session 29763: 6/6
+RESULT: B waited on A's row lock, re-counted after A committed and was refused — 6/6, no overbooking.
+
+==============================================================================
+PART 4 — FIX 2: SERIALIZABLE isolation (no explicit lock), with one retry
+==============================================================================
+[reset] session 29763 now has 5/6 confirmed swimmers
+[A] BEGIN ISOLATION LEVEL SERIALIZABLE
+[A]   -> BEGIN
+[A] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[A]   -> (5,)
+[B] BEGIN ISOLATION LEVEL SERIALIZABLE
+[B]   -> BEGIN
+[B] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[B]   -> (5,)
+[A] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 17, 'confirmed')
+[A]   -> INSERT 0 1
+[B] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 18, 'confirmed')
+[B]   -> INSERT 0 1
+[A] COMMIT
+[A]   -> COMMIT
+[B] COMMIT
+[B]   -> ERROR:  could not serialize access due to read/write dependencies among transactions   (SQLSTATE 40001)
+B was ABORTED with serialization_failure (40001); the app retries B once:
+[B] BEGIN ISOLATION LEVEL SERIALIZABLE
+[B]   -> BEGIN
+[B] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[B]   -> (6,)
+[B] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 18, 'confirmed')
+[B]   -> ERROR:  Group session 29763 is full (capacity=6, already enrolled=6)   (SQLSTATE 23514)
+[B] ROLLBACK
+[B]   -> ROLLBACK
+[check] enrolled in session 29763: 6/6
+RESULT: 6/6 — the retry saw the lesson was full (trigger refused it), no overbooking.
+
+==============================================================================
+PART 5 — READ COMMITTED vs REPEATABLE READ (price change + new booking during A's transaction)
+==============================================================================
+[reset] session 29763 now has 3/6 confirmed swimmers
+
+--- A runs at READ COMMITTED ---
+[reset] session 29763 now has 3/6 confirmed swimmers
+[A] BEGIN ISOLATION LEVEL READ COMMITTED
+[A]   -> BEGIN
+[A] SELECT price FROM lesson_session WHERE session_id = 29763
+[A]   -> (Decimal('5000.00'),)
+[A] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[A]   -> (3,)
+[B] UPDATE lesson_session SET price = 5500 WHERE session_id = 29763
+[B]   -> UPDATE 1
+[B] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 17, 'confirmed')
+[B]   -> INSERT 0 1
+(B auto-committed both changes)
+[A] SELECT price FROM lesson_session WHERE session_id = 29763
+[A]   -> (Decimal('5500.00'),)
+[A] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[A]   -> (4,)
+[A] COMMIT
+[A]   -> COMMIT
+A's second read: price 5500.00, enrolled 4 -> changed inside one transaction (non-repeatable read + phantom)
+
+--- A runs at REPEATABLE READ ---
+[reset] session 29763 now has 3/6 confirmed swimmers
+[A] BEGIN ISOLATION LEVEL REPEATABLE READ
+[A]   -> BEGIN
+[A] SELECT price FROM lesson_session WHERE session_id = 29763
+[A]   -> (Decimal('5000.00'),)
+[A] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[A]   -> (3,)
+[B] UPDATE lesson_session SET price = 5500 WHERE session_id = 29763
+[B]   -> UPDATE 1
+[B] INSERT INTO enrolment (session_id, swimmer_id, status) VALUES (29763, 17, 'confirmed')
+[B]   -> INSERT 0 1
+(B auto-committed both changes)
+[A] SELECT price FROM lesson_session WHERE session_id = 29763
+[A]   -> (Decimal('5000.00'),)
+[A] SELECT count(*) FROM enrolment WHERE session_id = 29763 AND status IN ('confirmed','attended')
+[A]   -> (3,)
+[A] COMMIT
+[A]   -> COMMIT
+A's second read: price 5000.00, enrolled 3 -> same snapshot as the first read (no non-repeatable read, no phantom)
+
+==============================================================================
+PART 6 — DEADLOCK: A and B update two swimmers in OPPOSITE order
+==============================================================================
+[A] BEGIN
+[A]   -> BEGIN
+[B] BEGIN
+[B]   -> BEGIN
+[A] UPDATE swimmer SET phone = phone WHERE swimmer_id = 19
+[A]   -> UPDATE 1
+[B] UPDATE swimmer SET phone = phone WHERE swimmer_id = 24
+[B]   -> UPDATE 1
+[A] UPDATE swimmer SET phone = phone WHERE swimmer_id = 24
+[A]   ... BLOCKED (pg_stat_activity.wait_event_type = Lock)
+[B] UPDATE swimmer SET phone = phone WHERE swimmer_id = 19
+[B]   ... BLOCKED (pg_stat_activity.wait_event_type = Lock)
+[A]   -> ERROR:  deadlock detected   (SQLSTATE 40P01)
+[B]   -> UPDATE 1
+[A] ROLLBACK
+[A]   -> ROLLBACK
+[B] COMMIT
+[B]   -> COMMIT
+RESULT: PostgreSQL found the cycle (deadlock_timeout = 1s) and aborted one transaction (40P01).
+
+--- The fix: both sessions lock in the SAME order (lowest swimmer_id first) ---
+[A] BEGIN
+[A]   -> BEGIN
+[B] BEGIN
+[B]   -> BEGIN
+[A] UPDATE swimmer SET phone = phone WHERE swimmer_id = 19
+[A]   -> UPDATE 1
+[B] UPDATE swimmer SET phone = phone WHERE swimmer_id = 19
+[B]   ... BLOCKED (pg_stat_activity.wait_event_type = Lock)
+[A] UPDATE swimmer SET phone = phone WHERE swimmer_id = 24
+[A]   -> UPDATE 1
+[A] COMMIT
+[A]   -> COMMIT
+[B]   -> UPDATE 1
+[B] UPDATE swimmer SET phone = phone WHERE swimmer_id = 24
+[B]   -> UPDATE 1
+[B] COMMIT
+[B]   -> COMMIT
+RESULT: B simply waited for A, then finished. Same lock order = no deadlock.
+
+==============================================================================
+CLEANUP
+==============================================================================
+Demo session 29763 and its enrolments/payments removed.
+All six parts finished.
