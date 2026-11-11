@@ -1,0 +1,7 @@
+# generated data (re-created by the runners; too big for git)
+portfolio-1-database-design/bulk_data/
+portfolio-4-nosql/pg_attended.jsonl
+__pycache__/
+*.pyc
+# keep: *_output.log, explain_*.txt, race_demos_output.log, replication_output.log, my_results.txt
+*.zip
