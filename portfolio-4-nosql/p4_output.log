@@ -1,0 +1,446 @@
+==> [0/5] Make sure mongod is running
+==> [1/5] Export the real ATTENDED lessons from PostgreSQL (P1) -> pg_attended.jsonl
+    50073 attended lessons exported
+==> [2/5] (Re)create progress_notes with the $jsonSchema validator (+ 2 rejected test docs)
+Collection progress_notes created with $jsonSchema validator.
+
+Verify:
+[
+  'note_id',
+  'swimmer_id',
+  'session_id',
+  'instructor_id',
+  'lesson_date',
+  'level',
+  'skills',
+  'instructor_comment',
+  'safety_incidents'
+]
+
+Validator test 1 (level 'Dolphin' is not in the enum) — must be REJECTED:
+  REJECTED: Document failed validation
+Validator test 2 (score 9 is above the maximum 5) — must be REJECTED:
+  REJECTED: Document failed validation
+
+==> [3/5] Seed one progress note per attended lesson (40,000+)
+Read 50073 attended lessons exported from PostgreSQL.
+  inserted 10000 / 50073
+  inserted 20000 / 50073
+  inserted 30000 / 50073
+  inserted 40000 / 50073
+  inserted 50000 / 50073
+Done. Total progress_notes documents: 50073
+Distinct swimmers: 16647
+Distinct instructors: 30
+Date range: 2024-11-11T05:00:00.000Z  to  2026-11-11T08:16:00.000Z
+
+==> [4/5] Aggregation pipelines
+====================================================================
+AGGREGATION 1: Average number of lessons to pass each level
+====================================================================
+(Per swimmer and level: lessons up to and including the FIRST lesson where
+ every skill on the checklist was passed. Then the average per level.)
+
+[
+  {
+    swimmers_passed: 5414,
+    max_lessons_to_pass: 5,
+    level: 'Tadpole',
+    avg_lessons_to_pass: 1.24
+  },
+  {
+    swimmers_passed: 5443,
+    max_lessons_to_pass: 7,
+    level: 'Beginner',
+    avg_lessons_to_pass: 1.51
+  },
+  {
+    swimmers_passed: 2240,
+    max_lessons_to_pass: 7,
+    level: 'Intermediate',
+    avg_lessons_to_pass: 1.73
+  },
+  {
+    swimmers_passed: 36,
+    max_lessons_to_pass: 2,
+    level: 'Advanced',
+    avg_lessons_to_pass: 1.11
+  }
+]
+
+====================================================================
+AGGREGATION 2: Common struggle areas
+(For each skill, % of notes where assessed=false. Top 10.)
+====================================================================
+
+[
+  {
+    _id: 'breaststroke 25m',
+    total_notes: 857,
+    failed_notes: 307,
+    skill: 'breaststroke 25m',
+    failure_rate_pct: 35.82
+  },
+  {
+    _id: 'treading water 2min',
+    total_notes: 857,
+    failed_notes: 305,
+    skill: 'treading water 2min',
+    failure_rate_pct: 35.59
+  },
+  {
+    _id: 'butterfly 15m',
+    total_notes: 857,
+    failed_notes: 305,
+    skill: 'butterfly 15m',
+    failure_rate_pct: 35.59
+  },
+  {
+    _id: 'rescue tow',
+    total_notes: 857,
+    failed_notes: 304,
+    skill: 'rescue tow',
+    failure_rate_pct: 35.47
+  },
+  {
+    _id: 'flip turn',
+    total_notes: 857,
+    failed_notes: 302,
+    skill: 'flip turn',
+    failure_rate_pct: 35.24
+  },
+  {
+    _id: 'backstroke 50m under 50s',
+    total_notes: 857,
+    failed_notes: 300,
+    skill: 'backstroke 50m under 50s',
+    failure_rate_pct: 35.01
+  },
+  {
+    _id: 'dive from starting block',
+    total_notes: 857,
+    failed_notes: 294,
+    skill: 'dive from starting block',
+    failure_rate_pct: 34.31
+  },
+  {
+    _id: 'freestyle 50m under 45s',
+    total_notes: 857,
+    failed_notes: 288,
+    skill: 'freestyle 50m under 45s',
+    failure_rate_pct: 33.61
+  },
+  {
+    _id: 'somersault underwater',
+    total_notes: 15625,
+    failed_notes: 4139,
+    skill: 'somersault underwater',
+    failure_rate_pct: 26.49
+  },
+  {
+    _id: 'rhythmic breathing',
+    total_notes: 15625,
+    failed_notes: 4135,
+    skill: 'rhythmic breathing',
+    failure_rate_pct: 26.46
+  }
+]
+
+====================================================================
+AGGREGATION 3: Progress per instructor
+(Per instructor: lessons taught, average skill score, % of skills passed, safety incidents)
+====================================================================
+
+Top 5 instructors by skill pass rate:
+[
+  {
+    lessons: 1409,
+    safety_incidents: 23,
+    instructor_id: 24,
+    avg_skill_score: 3.54,
+    pass_rate_pct: 81.5
+  },
+  {
+    lessons: 1468,
+    safety_incidents: 32,
+    instructor_id: 20,
+    avg_skill_score: 3.54,
+    pass_rate_pct: 81.3
+  },
+  {
+    lessons: 1611,
+    safety_incidents: 26,
+    instructor_id: 6,
+    avg_skill_score: 3.52,
+    pass_rate_pct: 81.1
+  },
+  {
+    lessons: 1441,
+    safety_incidents: 24,
+    instructor_id: 21,
+    avg_skill_score: 3.52,
+    pass_rate_pct: 81
+  },
+  {
+    lessons: 2290,
+    safety_incidents: 39,
+    instructor_id: 14,
+    avg_skill_score: 3.53,
+    pass_rate_pct: 80.8
+  }
+]
+Bottom 3 instructors by skill pass rate:
+[
+  {
+    lessons: 1454,
+    safety_incidents: 27,
+    instructor_id: 22,
+    avg_skill_score: 3.49,
+    pass_rate_pct: 79.7
+  },
+  {
+    lessons: 1617,
+    safety_incidents: 36,
+    instructor_id: 10,
+    avg_skill_score: 3.5,
+    pass_rate_pct: 79.4
+  },
+  {
+    lessons: 1686,
+    safety_incidents: 37,
+    instructor_id: 9,
+    avg_skill_score: 3.47,
+    pass_rate_pct: 79.3
+  }
+]
+(30 instructors total)
+
+====================================================================
+AGGREGATION 3b: Safety incidents per instructor (summary)
+====================================================================
+
+[
+  {
+    _id: 11,
+    total_incidents: 52,
+    critical_incidents: 1,
+    high_incidents: 1
+  },
+  {
+    _id: 15,
+    total_incidents: 42,
+    critical_incidents: 0,
+    high_incidents: 2
+  },
+  {
+    _id: 14,
+    total_incidents: 39,
+    critical_incidents: 1,
+    high_incidents: 2
+  },
+  {
+    _id: 4,
+    total_incidents: 38,
+    critical_incidents: 0,
+    high_incidents: 4
+  },
+  {
+    _id: 9,
+    total_incidents: 37,
+    critical_incidents: 1,
+    high_incidents: 2
+  },
+  {
+    _id: 8,
+    total_incidents: 37,
+    critical_incidents: 0,
+    high_incidents: 2
+  },
+  {
+    _id: 25,
+    total_incidents: 36,
+    critical_incidents: 0,
+    high_incidents: 0
+  },
+  {
+    _id: 10,
+    total_incidents: 36,
+    critical_incidents: 0,
+    high_incidents: 3
+  },
+  {
+    _id: 3,
+    total_incidents: 36,
+    critical_incidents: 1,
+    high_incidents: 3
+  },
+  {
+    _id: 5,
+    total_incidents: 36,
+    critical_incidents: 2,
+    high_incidents: 0
+  },
+  {
+    _id: 27,
+    total_incidents: 34,
+    critical_incidents: 0,
+    high_incidents: 1
+  },
+  {
+    _id: 30,
+    total_incidents: 34,
+    critical_incidents: 0,
+    high_incidents: 2
+  },
+  {
+    _id: 28,
+    total_incidents: 33,
+    critical_incidents: 1,
+    high_incidents: 2
+  },
+  {
+    _id: 12,
+    total_incidents: 33,
+    critical_incidents: 1,
+    high_incidents: 3
+  },
+  {
+    _id: 18,
+    total_incidents: 32,
+    critical_incidents: 1,
+    high_incidents: 2
+  },
+  {
+    _id: 20,
+    total_incidents: 32,
+    critical_incidents: 3,
+    high_incidents: 2
+  },
+  {
+    _id: 13,
+    total_incidents: 31,
+    critical_incidents: 0,
+    high_incidents: 0
+  },
+  {
+    _id: 1,
+    total_incidents: 30,
+    critical_incidents: 0,
+    high_incidents: 1
+  },
+  {
+    _id: 29,
+    total_incidents: 30,
+    critical_incidents: 1,
+    high_incidents: 0
+  },
+  {
+    _id: 23,
+    total_incidents: 28,
+    critical_incidents: 0,
+    high_incidents: 2
+  },
+  {
+    _id: 7,
+    total_incidents: 28,
+    critical_incidents: 0,
+    high_incidents: 2
+  },
+  {
+    _id: 17,
+    total_incidents: 27,
+    critical_incidents: 0,
+    high_incidents: 0
+  },
+  {
+    _id: 22,
+    total_incidents: 27,
+    critical_incidents: 0,
+    high_incidents: 3
+  },
+  {
+    _id: 19,
+    total_incidents: 27,
+    critical_incidents: 0,
+    high_incidents: 2
+  },
+  {
+    _id: 6,
+    total_incidents: 26,
+    critical_incidents: 0,
+    high_incidents: 2
+  },
+  {
+    _id: 26,
+    total_incidents: 24,
+    critical_incidents: 1,
+    high_incidents: 0
+  },
+  {
+    _id: 21,
+    total_incidents: 24,
+    critical_incidents: 0,
+    high_incidents: 0
+  },
+  {
+    _id: 24,
+    total_incidents: 23,
+    critical_incidents: 0,
+    high_incidents: 3
+  },
+  {
+    _id: 2,
+    total_incidents: 22,
+    critical_incidents: 0,
+    high_incidents: 0
+  },
+  {
+    _id: 16,
+    total_incidents: 17,
+    critical_incidents: 0,
+    high_incidents: 0
+  }
+]
+
+====================================================================
+DONE.
+====================================================================
+
+==> [5/5] Index demo: COLLSCAN before, IXSCAN after
+Query: notes for swimmer 6582 (Abdullahi Toko) since 2026-05-11, newest first
+Collection size: 50073 documents
+====================================================================
+BEFORE: no index. Running explain('executionStats')...
+====================================================================
+Plan: SORT <- COLLSCAN
+totalDocsExamined: 50073
+nReturned: 7
+executionTimeMillis: 16
+Wrote index_explain_before.txt
+
+====================================================================
+Creating index idx_swimmer_lesson_date on (swimmer_id, lesson_date)...
+====================================================================
+Index created.
+
+====================================================================
+AFTER: index exists. Running explain('executionStats')...
+====================================================================
+Plan: FETCH <- IXSCAN(idx_swimmer_lesson_date)
+totalDocsExamined: 7
+nReturned: 7
+executionTimeMillis: 1
+Wrote index_explain_after.txt
+
+====================================================================
+SUMMARY (real numbers from this run):
+====================================================================
+BEFORE: plan=SORT <- COLLSCAN  keysExamined=0  docsExamined=50073  nReturned=7  timeMs=16
+AFTER:  plan=FETCH <- IXSCAN(idx_swimmer_lesson_date)  keysExamined=7  docsExamined=7  nReturned=7  timeMs=1
+
+Indexes now on progress_notes:
+  _id_  {"_id":1}
+  idx_swimmer_lesson_date  {"swimmer_id":1,"lesson_date":-1}
+  idx_level_date  {"level":1,"lesson_date":-1}
+
+P4 DONE. Evidence: this output (p4_output.log), index_explain_before.txt, index_explain_after.txt

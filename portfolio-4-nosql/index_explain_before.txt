@@ -1,0 +1,147 @@
+{
+  "explainVersion": "1",
+  "queryPlanner": {
+    "namespace": "splashpoint.progress_notes",
+    "parsedQuery": {
+      "$and": [
+        {
+          "swimmer_id": {
+            "$eq": 6582
+          }
+        },
+        {
+          "lesson_date": {
+            "$gte": "2026-05-11T22:28:57.888Z"
+          }
+        }
+      ]
+    },
+    "indexFilterSet": false,
+    "queryHash": "D477D712",
+    "planCacheShapeHash": "D477D712",
+    "planCacheKey": "BAA03EDA",
+    "optimizationTimeMillis": 0,
+    "maxIndexedOrSolutionsReached": false,
+    "maxIndexedAndSolutionsReached": false,
+    "maxScansToExplodeReached": false,
+    "prunedSimilarIndexes": false,
+    "winningPlan": {
+      "isCached": false,
+      "stage": "SORT",
+      "sortPattern": {
+        "lesson_date": -1
+      },
+      "memLimit": 104857600,
+      "type": "simple",
+      "inputStage": {
+        "stage": "COLLSCAN",
+        "filter": {
+          "$and": [
+            {
+              "swimmer_id": {
+                "$eq": 6582
+              }
+            },
+            {
+              "lesson_date": {
+                "$gte": "2026-05-11T22:28:57.888Z"
+              }
+            }
+          ]
+        },
+        "direction": "forward"
+      }
+    },
+    "rejectedPlans": []
+  },
+  "executionStats": {
+    "executionSuccess": true,
+    "nReturned": 7,
+    "executionTimeMillis": 16,
+    "totalKeysExamined": 0,
+    "totalDocsExamined": 50073,
+    "executionStages": {
+      "isCached": false,
+      "stage": "SORT",
+      "nReturned": 7,
+      "executionTimeMillisEstimate": 14,
+      "works": 50082,
+      "advanced": 7,
+      "needTime": 50074,
+      "needYield": 0,
+      "saveState": 0,
+      "restoreState": 0,
+      "isEOF": 1,
+      "sortPattern": {
+        "lesson_date": -1
+      },
+      "memLimit": 104857600,
+      "type": "simple",
+      "totalDataSizeSorted": 4745,
+      "usedDisk": false,
+      "spills": 0,
+      "spilledDataStorageSize": 0,
+      "inputStage": {
+        "stage": "COLLSCAN",
+        "filter": {
+          "$and": [
+            {
+              "swimmer_id": {
+                "$eq": 6582
+              }
+            },
+            {
+              "lesson_date": {
+                "$gte": "2026-05-11T22:28:57.888Z"
+              }
+            }
+          ]
+        },
+        "nReturned": 7,
+        "executionTimeMillisEstimate": 14,
+        "works": 50074,
+        "advanced": 7,
+        "needTime": 50066,
+        "needYield": 0,
+        "saveState": 0,
+        "restoreState": 0,
+        "isEOF": 1,
+        "direction": "forward",
+        "docsExamined": 50073
+      }
+    }
+  },
+  "queryShapeHash": "373440870A5C5CC4D9E768CDBB97F4FBAFFE788B9328E933224545726ACA6372",
+  "command": {
+    "find": "progress_notes",
+    "filter": {
+      "swimmer_id": 6582,
+      "lesson_date": {
+        "$gte": "2026-05-11T22:28:57.888Z"
+      }
+    },
+    "sort": {
+      "lesson_date": -1
+    },
+    "$db": "splashpoint"
+  },
+  "serverInfo": {
+    "host": "codespaces-cd1981",
+    "port": 27017,
+    "version": "8.0.38",
+    "gitVersion": "b2f7afe3a6838999fd375c7a7ea678189f795568"
+  },
+  "serverParameters": {
+    "internalQueryFacetBufferSizeBytes": 104857600,
+    "internalQueryFacetMaxOutputDocSizeBytes": 104857600,
+    "internalLookupStageIntermediateDocumentMaxSizeBytes": 104857600,
+    "internalDocumentSourceGroupMaxMemoryBytes": 104857600,
+    "internalQueryMaxBlockingSortMemoryUsageBytes": 104857600,
+    "internalQueryProhibitBlockingMergeOnMongoS": 0,
+    "internalQueryMaxAddToSetBytes": 104857600,
+    "internalDocumentSourceSetWindowFieldsMaxMemoryBytes": 104857600,
+    "internalQueryFrameworkControl": "trySbeRestricted",
+    "internalQueryPlannerIgnoreIndexWithCollationForRegex": 1
+  },
+  "ok": 1
+}
