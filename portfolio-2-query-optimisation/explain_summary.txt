@@ -1,0 +1,7 @@
+Q    before_ms   after_ms speedup | BEFORE lesson_session                      BEFORE enrolment   | AFTER lesson_session                       AFTER enrolment
+Q1       0.472      0.503    0.9x | Bitmap Heap Scan (excl_instructor_overlap) -                  | Bitmap Heap Scan (excl_instructor_overlap) -
+Q2       0.813      0.460    1.8x | Bitmap Heap Scan (excl_instructor_overlap) -                  | Bitmap Heap Scan (idx_session_instructor_start) -
+Q3      15.254     12.672    1.2x | Seq Scan                                   Seq Scan           | Index Scan (idx_session_start)             Seq Scan
+Q4      17.597     19.597    0.9x | Seq Scan                                   -                  | Seq Scan                                   -
+Q5      83.615    120.469    0.7x | Seq Scan                                   Seq Scan           | Seq Scan                                   Seq Scan
+Q6      15.202     18.333    0.8x | Seq Scan                                   Seq Scan           | Index Scan (idx_session_start)             Seq Scan

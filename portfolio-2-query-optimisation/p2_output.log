@@ -1,0 +1,39 @@
+==> [1/5] Reset: drop the P2 indexes (so re-runs are fair) and ANALYZE
+NOTICE:  index "idx_session_start" does not exist, skipping
+NOTICE:  index "idx_session_pool_start" does not exist, skipping
+NOTICE:  index "idx_session_instructor_start" does not exist, skipping
+NOTICE:  index "idx_session_lane_start" does not exist, skipping
+NOTICE:  index "idx_enrolment_session_status" does not exist, skipping
+NOTICE:  index "idx_enrolment_no_show" does not exist, skipping
+NOTICE:  index "idx_payment_status_paid" does not exist, skipping
+NOTICE:  index "idx_enrolment_attended" does not exist, skipping
+==> [2/5] BEFORE indexes: run queries.sql -> explain_log_before.txt
+    wrote explain_log_before.txt
+==> [3/5] Add the indexes (indexes.sql) and ANALYZE
+BEGIN
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+ANALYZE
+ANALYZE
+ANALYZE
+COMMIT
+Indexes created. Re-run queries.sql to capture the AFTER plans.
+==> [4/5] AFTER indexes: run queries.sql -> explain_log_after.txt
+    wrote explain_log_after.txt
+==> [5/5] Before/after summary (Execution Time from EXPLAIN ANALYZE)
+Q    before_ms   after_ms speedup | BEFORE lesson_session                      BEFORE enrolment   | AFTER lesson_session                       AFTER enrolment
+Q1       0.472      0.503    0.9x | Bitmap Heap Scan (excl_instructor_overlap) -                  | Bitmap Heap Scan (excl_instructor_overlap) -
+Q2       0.813      0.460    1.8x | Bitmap Heap Scan (excl_instructor_overlap) -                  | Bitmap Heap Scan (idx_session_instructor_start) -
+Q3      15.254     12.672    1.2x | Seq Scan                                   Seq Scan           | Index Scan (idx_session_start)             Seq Scan
+Q4      17.597     19.597    0.9x | Seq Scan                                   -                  | Seq Scan                                   -
+Q5      83.615    120.469    0.7x | Seq Scan                                   Seq Scan           | Seq Scan                                   Seq Scan
+Q6      15.202     18.333    0.8x | Seq Scan                                   Seq Scan           | Index Scan (idx_session_start)             Seq Scan
+
+P2 DONE. Evidence files: explain_log_before.txt, explain_log_after.txt, explain_summary.txt
+  Full-history aggregates (Q4, Q5) are expected to keep a Seq Scan — see explain_results.md.

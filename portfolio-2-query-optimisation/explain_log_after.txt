@@ -1,0 +1,342 @@
+Pager usage is off.
+Timing is on.
+SET
+Time: 0.180 ms
+===== Q1: Free lanes at SplashPoint Ikoyi tomorrow 10:00-10:45 =====
+ lane_id | lane_number | max_capacity 
+---------+-------------+--------------
+       9 |           1 |            4
+      10 |           2 |            4
+      11 |           3 |            6
+      12 |           4 |            4
+      13 |           5 |            4
+(5 rows)
+
+Time: 2.871 ms
+--- Q1 EXPLAIN ANALYZE ---
+                                                                                                                      QUERY PLAN                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=14.44..14.45 rows=4 width=12) (actual time=0.479..0.480 rows=5 loops=1)
+   Sort Key: l.lane_number
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=31
+   ->  Nested Loop Anti Join  (cost=5.38..14.40 rows=4 width=12) (actual time=0.469..0.475 rows=5 loops=1)
+         Join Filter: (ls.lane_id = l.lane_id)
+         Rows Removed by Join Filter: 5
+         Buffers: shared hit=31
+         ->  Hash Join  (cost=1.06..2.32 rows=4 width=12) (actual time=0.018..0.021 rows=5 loops=1)
+               Hash Cond: (l.pool_id = p.pool_id)
+               Buffers: shared hit=2
+               ->  Seq Scan on lane l  (cost=0.00..1.17 rows=17 width=16) (actual time=0.002..0.003 rows=17 loops=1)
+                     Buffers: shared hit=1
+               ->  Hash  (cost=1.05..1.05 rows=1 width=4) (actual time=0.006..0.006 rows=1 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on pool p  (cost=0.00..1.05 rows=1 width=4) (actual time=0.002..0.003 rows=1 loops=1)
+                           Filter: (name = 'SplashPoint Ikoyi'::text)
+                           Rows Removed by Filter: 3
+                           Buffers: shared hit=1
+         ->  Materialize  (cost=4.32..11.96 rows=2 width=4) (actual time=0.090..0.090 rows=1 loops=5)
+               Buffers: shared hit=29
+               ->  Bitmap Heap Scan on lesson_session ls  (cost=4.32..11.95 rows=2 width=4) (actual time=0.445..0.445 rows=1 loops=1)
+                     Recheck Cond: (during && tstzrange((((CURRENT_DATE + 1) + '10:00:00'::time without time zone))::timestamp with time zone, (((CURRENT_DATE + 1) + '10:45:00'::time without time zone))::timestamp with time zone, '[)'::text))
+                     Heap Blocks: exact=1
+                     Buffers: shared hit=29
+                     ->  Bitmap Index Scan on excl_instructor_overlap  (cost=0.00..4.31 rows=2 width=0) (actual time=0.443..0.443 rows=1 loops=1)
+                           Index Cond: (during && tstzrange((((CURRENT_DATE + 1) + '10:00:00'::time without time zone))::timestamp with time zone, (((CURRENT_DATE + 1) + '10:45:00'::time without time zone))::timestamp with time zone, '[)'::text))
+                           Buffers: shared hit=28
+ Planning:
+   Buffers: shared hit=8
+ Planning Time: 0.207 ms
+ Execution Time: 0.503 ms
+(33 rows)
+
+Time: 1.021 ms
+===== Q2: Lessons per month for instructor 7, last 12 months =====
+ instructor_id | instructor |  month  | lessons_taught | minutes_taught 
+---------------+------------+---------+----------------+----------------
+             7 | Lola Okeke | 2025-11 |             35 |           1275
+             7 | Lola Okeke | 2025-12 |             36 |           1500
+             7 | Lola Okeke | 2026-01 |             39 |           1590
+             7 | Lola Okeke | 2026-02 |             31 |           1230
+             7 | Lola Okeke | 2026-03 |             47 |           2040
+             7 | Lola Okeke | 2026-04 |             43 |           1785
+             7 | Lola Okeke | 2026-05 |             46 |           1830
+             7 | Lola Okeke | 2026-06 |             35 |           1560
+             7 | Lola Okeke | 2026-07 |             44 |           1845
+             7 | Lola Okeke | 2026-08 |             44 |           1845
+             7 | Lola Okeke | 2026-09 |             37 |           1455
+             7 | Lola Okeke | 2026-10 |             40 |           1710
+             7 | Lola Okeke | 2026-11 |             19 |            810
+(13 rows)
+
+Time: 1.481 ms
+--- Q2 EXPLAIN ANALYZE ---
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=472.95..474.13 rows=473 width=104) (actual time=0.425..0.426 rows=13 loops=1)
+   Sort Key: (to_char((date_trunc('month'::text, ls.start_time)), 'YYYY-MM'::text))
+   Sort Method: quicksort  Memory: 26kB
+   Buffers: shared hit=173
+   ->  HashAggregate  (cost=441.29..451.94 rows=473 width=104) (actual time=0.407..0.415 rows=13 loops=1)
+         Group Key: date_trunc('month'::text, ls.start_time)
+         Batches: 1  Memory Usage: 49kB
+         Buffers: shared hit=173
+         ->  Nested Loop  (cost=14.34..437.74 rows=474 width=36) (actual time=0.051..0.345 rows=496 loops=1)
+               Buffers: shared hit=173
+               ->  Seq Scan on instructor i  (cost=0.00..1.38 rows=1 width=16) (actual time=0.003..0.005 rows=1 loops=1)
+                     Filter: (instructor_id = 7)
+                     Rows Removed by Filter: 29
+                     Buffers: shared hit=1
+               ->  Bitmap Heap Scan on lesson_session ls  (cost=14.34..430.44 rows=474 width=16) (actual time=0.044..0.227 rows=496 loops=1)
+                     Recheck Cond: ((instructor_id = 7) AND (start_time >= (now() - '1 year'::interval)) AND (start_time < now()))
+                     Heap Blocks: exact=168
+                     Buffers: shared hit=172
+                     ->  Bitmap Index Scan on idx_session_instructor_start  (cost=0.00..14.22 rows=474 width=0) (actual time=0.028..0.028 rows=496 loops=1)
+                           Index Cond: ((instructor_id = 7) AND (start_time >= (now() - '1 year'::interval)) AND (start_time < now()))
+                           Buffers: shared hit=4
+ Planning:
+   Buffers: shared hit=5
+ Planning Time: 0.146 ms
+ Execution Time: 0.460 ms
+(25 rows)
+
+Time: 0.844 ms
+===== Q3: Revenue per pool, last 30 days =====
+ pool_id |        pool         | revenue_ngn  | payments 
+---------+---------------------+--------------+----------
+       2 | SplashPoint Maitama | 3,231,000.00 |      569
+       3 | SplashPoint Ikoyi   | 2,946,000.00 |      514
+       4 | SplashPoint Lekki   | 2,401,000.00 |      420
+       1 | SplashPoint Wuse    | 2,080,000.00 |      360
+(4 rows)
+
+Time: 9.500 ms
+--- Q3 EXPLAIN ANALYZE ---
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=2066.91..2066.92 rows=4 width=62) (actual time=12.638..12.641 rows=4 loops=1)
+   Sort Key: (sum(pay.amount)) DESC
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=6561
+   ->  HashAggregate  (cost=2066.82..2066.87 rows=4 width=62) (actual time=12.628..12.631 rows=4 loops=1)
+         Group Key: p.pool_id
+         Batches: 1  Memory Usage: 24kB
+         Buffers: shared hit=6561
+         ->  Hash Join  (cost=62.18..2052.71 rows=1882 width=27) (actual time=0.320..12.279 rows=1863 loops=1)
+               Hash Cond: (ls.pool_id = p.pool_id)
+               Buffers: shared hit=6561
+               ->  Nested Loop  (cost=61.09..2041.45 rows=1882 width=9) (actual time=0.307..11.973 rows=1863 loops=1)
+                     Buffers: shared hit=6560
+                     ->  Hash Join  (cost=60.80..1330.32 rows=2017 width=8) (actual time=0.299..9.449 rows=2008 loops=1)
+                           Hash Cond: (e.session_id = ls.session_id)
+                           Buffers: shared hit=681
+                           ->  Seq Scan on enrolment e  (cost=0.00..1112.00 rows=60000 width=8) (actual time=0.002..4.598 rows=60000 loops=1)
+                                 Buffers: shared hit=512
+                           ->  Hash  (cost=48.30..48.30 rows=1000 width=8) (actual time=0.285..0.286 rows=991 loops=1)
+                                 Buckets: 1024  Batches: 1  Memory Usage: 47kB
+                                 Buffers: shared hit=169
+                                 ->  Index Scan using idx_session_start on lesson_session ls  (cost=0.29..48.30 rows=1000 width=8) (actual time=0.012..0.186 rows=991 loops=1)
+                                       Index Cond: ((start_time >= (now() - '30 days'::interval)) AND (start_time < now()))
+                                       Buffers: shared hit=169
+                     ->  Index Scan using idx_payment_status_paid on payment pay  (cost=0.29..0.35 rows=1 width=9) (actual time=0.001..0.001 rows=1 loops=2008)
+                           Index Cond: (enrolment_id = e.enrolment_id)
+                           Buffers: shared hit=5879
+               ->  Hash  (cost=1.04..1.04 rows=4 width=22) (actual time=0.007..0.007 rows=4 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on pool p  (cost=0.00..1.04 rows=4 width=22) (actual time=0.003..0.003 rows=4 loops=1)
+                           Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=33
+ Planning Time: 0.404 ms
+ Execution Time: 12.672 ms
+(36 rows)
+
+Time: 13.437 ms
+===== Q4: Lane utilisation %, last 730 days =====
+ lane_id |        pool         | lane_number | sessions_booked | minutes_booked | utilisation_pct 
+---------+---------------------+-------------+-----------------+----------------+-----------------
+       4 | SplashPoint Maitama |           1 |            1799 |          75765 |           12.36
+       7 | SplashPoint Maitama |           4 |            1730 |          72555 |           11.83
+      15 | SplashPoint Lekki   |           2 |            1725 |          72180 |           11.77
+       9 | SplashPoint Ikoyi   |           1 |            1758 |          71970 |           11.74
+       1 | SplashPoint Wuse    |           1 |            1726 |          71985 |           11.74
+       6 | SplashPoint Maitama |           3 |            1702 |          71700 |           11.69
+      11 | SplashPoint Ikoyi   |           3 |            1695 |          71685 |           11.69
+      16 | SplashPoint Lekki   |           3 |            1725 |          71595 |           11.68
+      12 | SplashPoint Ikoyi   |           4 |            1708 |          71160 |           11.60
+      14 | SplashPoint Lekki   |           1 |            1699 |          70860 |           11.56
+       8 | SplashPoint Maitama |           5 |            1692 |          70800 |           11.55
+       2 | SplashPoint Wuse    |           2 |            1723 |          70755 |           11.54
+       3 | SplashPoint Wuse    |           3 |            1693 |          70380 |           11.48
+      10 | SplashPoint Ikoyi   |           2 |            1720 |          70305 |           11.47
+       5 | SplashPoint Maitama |           2 |            1709 |          69855 |           11.39
+      13 | SplashPoint Ikoyi   |           5 |            1697 |          69630 |           11.36
+      17 | SplashPoint Lekki   |           4 |            1656 |          68475 |           11.17
+(17 rows)
+
+Time: 15.931 ms
+--- Q4 EXPLAIN ANALYZE ---
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=1604.46..1604.63 rows=68 width=74) (actual time=19.562..19.565 rows=17 loops=1)
+   Sort Key: (round(((100.0 * (COALESCE(sum(ls.duration_min), '0'::bigint))::numeric) / '613200'::numeric), 2)) DESC
+   Sort Method: quicksort  Memory: 26kB
+   Buffers: shared hit=386
+   ->  HashAggregate  (cost=1601.03..1602.39 rows=68 width=74) (actual time=19.541..19.552 rows=17 loops=1)
+         Group Key: l.lane_id, p.name
+         Batches: 1  Memory Usage: 24kB
+         Buffers: shared hit=386
+         ->  Hash Join  (cost=2.47..1309.30 rows=29173 width=34) (actual time=0.036..14.812 rows=29157 loops=1)
+               Hash Cond: (l.pool_id = p.pool_id)
+               Buffers: shared hit=386
+               ->  Hash Right Join  (cost=1.38..1150.49 rows=29173 width=20) (actual time=0.021..10.906 rows=29157 loops=1)
+                     Hash Cond: (ls.lane_id = l.lane_id)
+                     Buffers: shared hit=385
+                     ->  Seq Scan on lesson_session ls  (cost=0.00..1053.44 rows=29173 width=12) (actual time=0.009..5.988 rows=29157 loops=1)
+                           Filter: ((start_time < now()) AND (start_time >= (now() - '730 days'::interval)))
+                           Rows Removed by Filter: 596
+                           Buffers: shared hit=384
+                     ->  Hash  (cost=1.17..1.17 rows=17 width=12) (actual time=0.005..0.006 rows=17 loops=1)
+                           Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                           Buffers: shared hit=1
+                           ->  Seq Scan on lane l  (cost=0.00..1.17 rows=17 width=12) (actual time=0.001..0.003 rows=17 loops=1)
+                                 Buffers: shared hit=1
+               ->  Hash  (cost=1.04..1.04 rows=4 width=22) (actual time=0.013..0.013 rows=4 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on pool p  (cost=0.00..1.04 rows=4 width=22) (actual time=0.003..0.004 rows=4 loops=1)
+                           Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=16
+ Planning Time: 0.280 ms
+ Execution Time: 19.597 ms
+(32 rows)
+
+Time: 20.265 ms
+===== Q5: Distinct swimmers who attended each lesson type =====
+  lesson_type   | distinct_swimmers 
+----------------+-------------------
+ Toddler Splash |              6487
+ Adult Beginner |              5988
+ Group Adult    |              5945
+ Group Children |              5366
+ Private 1-on-1 |              3181
+(5 rows)
+
+Time: 69.832 ms
+--- Q5 EXPLAIN ANALYZE ---
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=6983.69..6983.70 rows=5 width=22) (actual time=120.127..120.134 rows=5 loops=1)
+   Sort Key: (count(DISTINCT e.swimmer_id)) DESC
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=897
+   ->  GroupAggregate  (cost=6607.40..6983.63 rows=5 width=22) (actual time=110.527..120.109 rows=5 loops=1)
+         Group Key: lt.name
+         Buffers: shared hit=897
+         ->  Sort  (cost=6607.40..6732.79 rows=50158 width=18) (actual time=106.937..111.681 rows=50073 loops=1)
+               Sort Key: lt.name, e.swimmer_id
+               Sort Method: quicksort  Memory: 3651kB
+               Buffers: shared hit=897
+               ->  Hash Join  (cost=1054.56..2691.51 rows=50158 width=18) (actual time=9.009..48.871 rows=50073 loops=1)
+                     Hash Cond: (ls.lesson_type_id = lt.lesson_type_id)
+                     Buffers: shared hit=897
+                     ->  Hash Join  (cost=1053.44..2447.13 rows=50158 width=8) (actual time=8.990..37.384 rows=50073 loops=1)
+                           Hash Cond: (e.session_id = ls.session_id)
+                           Buffers: shared hit=896
+                           ->  Seq Scan on enrolment e  (cost=0.00..1262.00 rows=50158 width=8) (actual time=0.006..13.553 rows=50073 loops=1)
+                                 Filter: (status = 'attended'::text)
+                                 Rows Removed by Filter: 9927
+                                 Buffers: shared hit=512
+                           ->  Hash  (cost=681.53..681.53 rows=29753 width=8) (actual time=8.954..8.955 rows=29753 loops=1)
+                                 Buckets: 32768  Batches: 1  Memory Usage: 1419kB
+                                 Buffers: shared hit=384
+                                 ->  Seq Scan on lesson_session ls  (cost=0.00..681.53 rows=29753 width=8) (actual time=0.004..4.185 rows=29753 loops=1)
+                                       Buffers: shared hit=384
+                     ->  Hash  (cost=1.05..1.05 rows=5 width=18) (actual time=0.013..0.014 rows=5 loops=1)
+                           Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                           Buffers: shared hit=1
+                           ->  Seq Scan on lesson_type lt  (cost=0.00..1.05 rows=5 width=18) (actual time=0.007..0.009 rows=5 loops=1)
+                                 Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=16
+ Planning Time: 0.403 ms
+ Execution Time: 120.469 ms
+(35 rows)
+
+Time: 121.325 ms
+===== Q6: Attendance / no-show rate per instructor, last 90 days =====
+ instructor_id |   instructor    | total_enrolments | attended | no_show | cancelled | no_show_pct 
+---------------+-----------------+------------------+----------+---------+-----------+-------------
+            19 | Kelechi Adebayo |              219 |      178 |      32 |         9 |       14.61
+            14 | Ibrahim Oladipo |              313 |      254 |      43 |        16 |       13.74
+            18 | Bola Oladipo    |              192 |      156 |      25 |        11 |       13.02
+            30 | Chioma Okon     |              182 |      149 |      23 |        10 |       12.64
+            24 | Oluwaseun Eze   |              179 |      149 |      21 |         9 |       11.73
+            16 | Abdullahi Sani  |              171 |      146 |      20 |         5 |       11.70
+            10 | Hauwa Bello     |              252 |      214 |      29 |         9 |       11.51
+            11 | Wale Adeyemi    |              342 |      284 |      39 |        19 |       11.40
+             2 | Yusuf Adebayo   |              188 |      158 |      21 |         9 |       11.17
+             5 | Jide Ojo        |              215 |      178 |      24 |        13 |       11.16
+            17 | Ifeoma Muhammed |              201 |      166 |      22 |        13 |       10.95
+            13 | Gbolahan Nnamdi |              316 |      270 |      34 |        12 |       10.76
+            20 | Ifedayo Danjuma |              226 |      190 |      24 |        12 |       10.62
+            27 | Nkechi Ibrahim  |              198 |      169 |      21 |         8 |       10.61
+             7 | Lola Okeke      |              266 |      222 |      28 |        16 |       10.53
+            23 | Sani Bashir     |              178 |      153 |      18 |         7 |       10.11
+             4 | Bayo Akpan      |              236 |      199 |      23 |        14 |        9.75
+             9 | Suleiman Ojo    |              236 |      202 |      23 |        11 |        9.75
+            28 | Bukola Ali      |              228 |      200 |      22 |         6 |        9.65
+             6 | Titilayo Bello  |              189 |      156 |      18 |        15 |        9.52
+            29 | Wale Adebayo    |              211 |      181 |      19 |        11 |        9.00
+            25 | Uche Lawal      |              231 |      199 |      20 |        12 |        8.66
+             3 | Nkechi Adebayo  |              222 |      197 |      19 |         6 |        8.56
+             8 | Oluwaseun Okoro |              248 |      212 |      21 |        15 |        8.47
+            15 | Lola Nwosu      |              339 |      291 |      28 |        20 |        8.26
+            12 | Ade Oyelowo     |              318 |      273 |      26 |        19 |        8.18
+             1 | Nasir Oyelowo   |              153 |      134 |      12 |         7 |        7.84
+            21 | Nasir Oladipo   |              192 |      165 |      15 |        12 |        7.81
+            26 | Amina Garba     |              218 |      193 |      17 |         8 |        7.80
+            22 | Hauwa Ali       |              221 |      192 |      16 |        13 |        7.24
+(30 rows)
+
+Time: 14.791 ms
+--- Q6 EXPLAIN ANALYZE ---
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=1645.26..1645.34 rows=30 width=112) (actual time=18.264..18.269 rows=30 loops=1)
+   Sort Key: (round(((100.0 * (count(*) FILTER (WHERE (e.status = 'no_show'::text)))::numeric) / (NULLIF(count(*), 0))::numeric), 2)) DESC NULLS LAST
+   Sort Method: quicksort  Memory: 27kB
+   Buffers: shared hit=1172
+   ->  HashAggregate  (cost=1643.63..1644.53 rows=30 width=112) (actual time=18.226..18.247 rows=30 loops=1)
+         Group Key: i.instructor_id
+         Batches: 1  Memory Usage: 24kB
+         Buffers: shared hit=1172
+         ->  Hash Join  (cost=199.41..1489.46 rows=6852 width=28) (actual time=1.615..16.459 rows=6880 loops=1)
+               Hash Cond: (ls.instructor_id = i.instructor_id)
+               Buffers: shared hit=1172
+               ->  Hash Join  (cost=197.74..1467.26 rows=6852 width=16) (actual time=1.592..14.980 rows=6880 loops=1)
+                     Hash Cond: (e.session_id = ls.session_id)
+                     Buffers: shared hit=1171
+                     ->  Seq Scan on enrolment e  (cost=0.00..1112.00 rows=60000 width=16) (actual time=0.005..5.362 rows=60000 loops=1)
+                           Buffers: shared hit=512
+                     ->  Hash  (cost=155.26..155.26 rows=3398 width=8) (actual time=1.574..1.575 rows=3399 loops=1)
+                           Buckets: 4096  Batches: 1  Memory Usage: 165kB
+                           Buffers: shared hit=659
+                           ->  Index Scan using idx_session_start on lesson_session ls  (cost=0.29..155.26 rows=3398 width=8) (actual time=0.020..0.988 rows=3399 loops=1)
+                                 Index Cond: ((start_time >= (now() - '90 days'::interval)) AND (start_time < now()))
+                                 Buffers: shared hit=659
+               ->  Hash  (cost=1.30..1.30 rows=30 width=16) (actual time=0.018..0.019 rows=30 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on instructor i  (cost=0.00..1.30 rows=30 width=16) (actual time=0.006..0.010 rows=30 loops=1)
+                           Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=21
+ Planning Time: 0.470 ms
+ Execution Time: 18.333 ms
+(31 rows)
+
+Time: 19.301 ms
